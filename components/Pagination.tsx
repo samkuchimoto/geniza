@@ -17,7 +17,7 @@ export default function Pagination({ page, totalPages, onChange }: PaginationPro
     const result: (number | '...')[] = []
     const around = new Set([1, totalPages, page - 1, page, page + 1].filter((p) => p >= 1 && p <= totalPages))
     let prev = 0
-    for (const p of [...around].sort((a, b) => a - b)) {
+    for (const p of Array.from(around).sort((a, b) => a - b)) {
       if (p - prev > 1) result.push('...')
       result.push(p)
       prev = p
