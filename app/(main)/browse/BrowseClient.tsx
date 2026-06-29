@@ -1,96 +1,121 @@
-'use client'
+# 1. Fix types/index.ts — strip the JSX that was appended
+head -n 89 types/index.ts > types/index.ts.tmp && mv types/index.ts.tmp types/index.ts
 
-import { useCallback, useTransition } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import FilterBar from '@/components/FilterBar'
-import SearchInput from '@/components/SearchInput'
-import ItemGrid from '@/components/ItemGrid'
-import Pagination from '@/components/Pagination'
-import type { BrowseFilters, ItemWithCover } from '@/types'
+# 2. Write the correct browse page
+cat > app/browse/page.tsx << 'EOF'
+import type { Metadata } from 'next'
+import { createClient } from '@/lib/supabase/server'
+import BrowseClient from './BrowseClient'
+import type { BrowseFilters, Category, Condition, ItemWithCover } from '@/types'
 
-interface BrowseClientProps {
-  items: ItemWithCover[]
-  filters: BrowseFilters
-  totalCount: number
-  totalPages: number
+export const metadata: Metadata = {
+  title: 'Catalogue',
+  description:
+    'Parcours les objets disponibles — art, antiquités, bandes dessinées, cartes. Échange ou achète.',
 }
 
-export default function BrowseClient({
-  items,
-  filters,
-  totalCount,
-  totalPages,
-}: BrowseClientProps) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const [isPending, startTransition] = useTransition()
+const PAGE_SIZE = 24
 
-  const pushFilters = useCallback(
-    (updates: Partial<BrowseFilters>) => {
-      const next = new URLSearchParams(searchParams.toString())
-      const merged = { ...filters, ...updates }
+interface PageProps {
+  searchParams: {
+    q?: string
+    category?: string
+    condition?: string
+    price_min?: string
+    price_max?: string
+    trade_only?: string
+    page?: string
+  }
+}
 
-      if (merged.query) next.set('q', merged.query)
-      else next.delete('q')
+async function fetchItems(filters: BrowseFilters): Promise<{
+  items: ItemWithCover[]
+  totalCount: number
+}> {
+  const supabase = createClient()
 
-      if (merged.category) next.set('category', merged.category)
-      else next.delete('category')
+  const offset = ((filters.page ?? 1) - 1) * PAGE_SIZE
 
-      if (merged.condition) next.set('condition', merged.condition)
-      else next.delete('condition')
+  let query = supabase
+    .from('items')
+    .select(
+      `
+      *,
+      seller:profiles!seller_id(id, username, collector_score, city, avatar_url),
+      cover_image:item_images!inner(url)
+    `,
+      { count: 'exact' }
+    )
+    .eq('status', 'available')
+    .eq('item_images.is_cover', true)
 
-      if (merged.min_price) next.set('price_min', String(merged.min_price))
-      else next.delete('price_min')
-
-      if (merged.max_price) next.set('price_max', String(merged.max_price))
-      else next.delete('price_max')
-
-      if (merged.trade_only) next.set('trade_only', '1')
-      else next.delete('trade_only')
-
-      if (merged.page && merged.page > 1) next.set('page', String(merged.page))
-      else next.delete('page')
-
-      startTransition(() => {
-        router.push(`/browse?${next.toString()}`, { scroll: false })
-      })
-    },
-    [filters, router, searchParams]
-  )
-
-  const handleReset = useCallback(() => {
-    startTransition(() => {
-      router.push('/browse', { scroll: false })
+  if (filters.category) query = query.eq('category', filters.category)
+  if (filters.condition) query = query.eq('condition', filters.condition)
+  if (filters.min_price) query = query.gte('price_eur', Number(filters.min_price))
+  if (filters.max_price) query = query.lte('price_eur', Number(filters.max_price))
+  if (filters.trade_only) query = query.in('listing_type', ['trade', 'both'])
+  if (filters.query) {
+    query = query.textSearch('search_vector', filters.query, {
+      type: 'websearch',
+      config: 'french',
     })
-  }, [router])
+  }
+
+  query = query
+    .order('created_at', { ascending: false })
+    .range(offset, offset + PAGE_SIZE - 1)
+
+  const { data, count, error } = await query
+
+  if (error || !data) return { items: [], totalCount: 0 }
+
+  const items = data.map((item: Record<string, unknown>) => ({
+    ...item,
+    cover_image:
+      Array.isArray(item.cover_image) && item.cover_image.length > 0
+        ? (item.cover_image[0] as { url: string }).url
+        : null,
+  })) as ItemWithCover[]
+
+  return { items, totalCount: count ?? 0 }
+}
+
+export default async function BrowsePage({ searchParams }: PageProps) {
+  const filters: BrowseFilters = {
+    query: searchParams.q ?? '',
+    category: (searchParams.category as Category) || '',
+    condition: (searchParams.condition as Condition) || '',
+    min_price: searchParams.price_min ? parseFloat(searchParams.price_min) : '',
+    max_price: searchParams.price_max ? parseFloat(searchParams.price_max) : '',
+    trade_only: searchParams.trade_only === '1',
+    page: Math.max(1, parseInt(searchParams.page ?? '1', 10)),
+  }
+
+  const { items, totalCount } = await fetchItems(filters)
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   return (
-    <div className="space-y-6">
-      <SearchInput
-        value={filters.query ?? ''}
-        onChange={(query) => pushFilters({ query, page: 1 })}
-      />
-
-      <FilterBar
-        filters={filters}
-        onChange={pushFilters}
-        onReset={handleReset}
-        resultCount={totalCount}
-      />
-
-      <div className={isPending ? 'opacity-60 pointer-events-none transition-opacity' : ''}>
-        <ItemGrid
-          items={items}
-          loading={false}
-          emptyMessage="Aucun objet ne correspond à tes critères."
-        />
+    <div className="container-page py-8 sm:py-12">
+      {/* Page header */}
+      <div className="mb-8">
+        <h1 className="font-display text-display-lg font-light text-encre">
+          Catalogue
+        </h1>
+        {filters.query && (
+          <p className="text-body-sm text-sable mt-1">
+            Résultats pour{' '}
+            <span className="text-encre font-medium">"{filters.query}"</span>
+          </p>
+        )}
       </div>
 
-      <Pagination
-        page={filters.page ?? 1}
+      <BrowseClient
+        items={items}
+        filters={filters}
+        totalCount={totalCount}
         totalPages={totalPages}
-        onChange={(page) => pushFilters({ page })}
       />
     </div>
   )
 }
+EOF
