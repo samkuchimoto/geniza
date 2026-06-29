@@ -4,8 +4,6 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/email'
 import type Stripe from 'stripe'
 
-// Required: disable Next.js body parsing so we can verify Stripe signature
-
 export async function POST(request: Request) {
   const body = await request.text()
   const signature = request.headers.get('stripe-signature')
@@ -42,7 +40,6 @@ export async function POST(request: Request) {
         const amountEur = (session.amount_total ?? 0) / 100
         const feeEur = parseFloat(platform_fee_eur ?? '0')
 
-        // Record transaction
         await supabase.from('transactions').insert({
           item_id,
           seller_id,
@@ -54,16 +51,13 @@ export async function POST(request: Request) {
           status: 'paid',
         })
 
-        // Mark item sold
         await supabase
           .from('items')
           .update({ status: 'sold' })
           .eq('id', item_id)
 
-        // Update seller stats
         await supabase.rpc('increment_completed_sales', { user_id: seller_id })
 
-        // Fetch seller email + item title for notification
         const [{ data: seller }, { data: item }] = await Promise.all([
           supabase.from('profiles').select('id').eq('id', seller_id).single(),
           supabase.from('items').select('title').eq('id', item_id).single(),
@@ -76,7 +70,7 @@ export async function POST(request: Request) {
           const baseUrl = process.env.NEXT_PUBLIC_BASE_URL!
           await sendEmail('sale_confirmed', sellerEmail, {
             item_title: item.title,
-            buyer_name: buyer_id.slice(0, 8), // replaced with actual name in production
+            buyer_name: buyer_id.slice(0, 8),
             amount_eur: amountEur.toFixed(2),
             fee_eur: feeEur.toFixed(2),
             net_eur: (amountEur - feeEur).toFixed(2),
@@ -96,7 +90,6 @@ export async function POST(request: Request) {
 
         const { trade_id, proposer_id, receiver_id } = meta
 
-        // Fetch both item IDs from trade
         const { data: trade } = await supabase
           .from('trade_proposals')
           .select('proposer_item_id, receiver_item_id')
@@ -105,7 +98,6 @@ export async function POST(request: Request) {
 
         if (!trade) break
 
-        // Atomic: lock both items + mark trade accepted
         await Promise.all([
           supabase
             .from('items')
@@ -120,7 +112,6 @@ export async function POST(request: Request) {
             .eq('id', trade_id),
         ])
 
-        // Notify both parties
         const [{ data: propAuth }, { data: recvAuth }] = await Promise.all([
           supabase.auth.admin.getUserById(proposer_id),
           supabase.auth.admin.getUserById(receiver_id),
@@ -140,10 +131,10 @@ export async function POST(request: Request) {
 
         if (propAuth?.user?.email && tradeItems) {
           await sendEmail('trade_accepted', propAuth.user.email, {
-            item_title: (tradeItems.proposer_item as { title: string }).title,
+            item_title: (tradeItems.proposer_item as unknown as { title: string }).title,
             receiver_name: receiver_id.slice(0, 8),
-            proposer_item_title: (tradeItems.proposer_item as { title: string }).title,
-            receiver_item_title: (tradeItems.receiver_item as { title: string }).title,
+            proposer_item_title: (tradeItems.proposer_item as unknown as { title: string }).title,
+            receiver_item_title: (tradeItems.receiver_item as unknown as { title: string }).title,
             trade_url: tradeUrl,
           })
         }
@@ -152,12 +143,10 @@ export async function POST(request: Request) {
       }
 
       default:
-        // Unhandled event type — ignore
         break
     }
   } catch (err: unknown) {
     console.error('[stripe/webhook] Handler error:', err)
-    // Return 200 to prevent Stripe retries on non-signature errors
     return NextResponse.json({ received: true })
   }
 
