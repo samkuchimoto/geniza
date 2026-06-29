@@ -9,15 +9,25 @@ import {
   CATEGORY_LABELS,
   CONDITION_LABELS,
   LISTING_TYPE_LABELS,
-  type ItemCategory,
-  type ItemCondition,
+  type Category,
+  type Condition,
   type ListingType,
-  type ListingFormData,
 } from '@/types'
 
-const CATEGORIES = Object.entries(CATEGORY_LABELS) as [ItemCategory, string][]
-const CONDITIONS = Object.entries(CONDITION_LABELS) as [ItemCondition, string][]
+const CATEGORIES = Object.entries(CATEGORY_LABELS) as [Category, string][]
+const CONDITIONS = Object.entries(CONDITION_LABELS) as [Condition, string][]
 const LISTING_TYPES = Object.entries(LISTING_TYPE_LABELS) as [ListingType, string][]
+
+interface ListingFormData {
+  title: string
+  description: string
+  category: Category
+  condition: Condition
+  listing_type: ListingType
+  price_eur: string
+  provenance: string
+  images: File[]
+}
 
 const EMPTY_FORM: ListingFormData = {
   title: '',
@@ -40,11 +50,10 @@ export default function ListingForm() {
   const [errors, setErrors] = useState<Partial<Record<keyof ListingFormData, string>>>({})
 
   const set = <K extends keyof ListingFormData>(key: K, value: ListingFormData[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }))
+    setForm((prev: ListingFormData) => ({ ...prev, [key]: value }))
     if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }))
   }
 
-  // ── Validation ──────────────────────────────────────────────
   function validate(): boolean {
     const e: typeof errors = {}
     if (!form.title.trim()) e.title = 'Le titre est requis.'
@@ -59,10 +68,9 @@ export default function ListingForm() {
     return Object.keys(e).length === 0
   }
 
-  // ── Groq AI assist ───────────────────────────────────────────
   async function handleAiAssist() {
     if (!form.title.trim()) {
-      showToast('Saisis d\'abord un titre pour générer une description.', 'info')
+      showToast("Saisis d'abord un titre pour générer une description.", 'info')
       return
     }
     setAiLoading(true)
@@ -88,7 +96,6 @@ export default function ListingForm() {
     }
   }
 
-  // ── Image upload to Supabase Storage ─────────────────────────
   async function uploadImages(itemId: string): Promise<string[]> {
     const urls: string[] = []
     for (const file of form.images) {
@@ -106,7 +113,6 @@ export default function ListingForm() {
     return urls
   }
 
-  // ── Submit ────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!validate()) return
@@ -116,7 +122,6 @@ export default function ListingForm() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Non authentifié.')
 
-      // 1. Create item as draft
       const { data: item, error: itemError } = await supabase
         .from('items')
         .insert({
@@ -138,10 +143,8 @@ export default function ListingForm() {
 
       if (itemError || !item) throw new Error(itemError?.message ?? 'Erreur création.')
 
-      // 2. Upload images
       const urls = await uploadImages(item.id)
 
-      // 3. Insert image rows
       const imageRows = urls.map((url, i) => ({
         item_id: item.id,
         url,
@@ -151,7 +154,6 @@ export default function ListingForm() {
       const { error: imgError } = await supabase.from('item_images').insert(imageRows)
       if (imgError) throw new Error(imgError.message)
 
-      // 4. Publish (set available)
       const { error: pubError } = await supabase
         .from('items')
         .update({ status: 'available' })
@@ -173,7 +175,6 @@ export default function ListingForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-8 max-w-2xl" noValidate>
 
-      {/* ── Photos ─────────────────────────────────────────── */}
       <section className="space-y-1">
         <ImageUploader
           files={form.images}
@@ -186,13 +187,12 @@ export default function ListingForm() {
 
       <div className="divider" />
 
-      {/* ── Category + Condition ───────────────────────────── */}
       <section className="grid grid-cols-2 gap-4">
         <div>
           <label className="label">Catégorie</label>
           <select
             value={form.category}
-            onChange={(e) => set('category', e.target.value as ItemCategory)}
+            onChange={(e) => set('category', e.target.value as Category)}
             className="input"
           >
             {CATEGORIES.map(([v, l]) => (
@@ -208,7 +208,7 @@ export default function ListingForm() {
               <button
                 key={v}
                 type="button"
-                onClick={() => set('condition', v as ItemCondition)}
+                onClick={() => set('condition', v as Condition)}
                 className={`
                   py-2 px-3 text-body-sm text-left border transition-colors duration-150
                   ${form.condition === v
@@ -224,7 +224,6 @@ export default function ListingForm() {
         </div>
       </section>
 
-      {/* ── Title ──────────────────────────────────────────── */}
       <section>
         <label htmlFor="title" className="label">Titre</label>
         <input
@@ -247,7 +246,6 @@ export default function ListingForm() {
         </div>
       </section>
 
-      {/* ── Description + AI assist ────────────────────────── */}
       <section>
         <div className="flex items-end justify-between mb-1.5">
           <label htmlFor="description" className="label mb-0">Description</label>
@@ -257,7 +255,7 @@ export default function ListingForm() {
             disabled={aiLoading || submitting}
             className="text-[11px] text-or hover:text-or-light font-medium font-mono-custom underline underline-offset-2 disabled:opacity-50 transition-colors"
           >
-            {aiLoading ? 'Génération...' : '✦ Générer avec l\'IA'}
+            {aiLoading ? 'Génération...' : "✦ Générer avec l'IA"}
           </button>
         </div>
         <textarea
@@ -274,7 +272,6 @@ export default function ListingForm() {
         </p>
       </section>
 
-      {/* ── Provenance ─────────────────────────────────────── */}
       <section>
         <label htmlFor="provenance" className="label">
           Provenance{' '}
@@ -298,7 +295,6 @@ export default function ListingForm() {
 
       <div className="divider" />
 
-      {/* ── Listing type ───────────────────────────────────── */}
       <section>
         <label className="label">Mode de cession</label>
         <div className="grid grid-cols-3 gap-2 mt-1">
@@ -321,7 +317,6 @@ export default function ListingForm() {
         </div>
       </section>
 
-      {/* ── Price (conditional) ────────────────────────────── */}
       {needsPrice && (
         <section className="animate-fade-in">
           <label htmlFor="price" className="label">Prix de vente (€)</label>
@@ -350,14 +345,13 @@ export default function ListingForm() {
         </section>
       )}
 
-      {/* ── Submit ─────────────────────────────────────────── */}
       <div className="flex items-center gap-4 pt-2">
         <button
           type="submit"
           disabled={submitting || aiLoading}
           className="btn-primary px-8 py-3 text-body-md disabled:opacity-50"
         >
-          {submitting ? 'Publication en cours...' : 'Publier l\'objet'}
+          {submitting ? 'Publication en cours...' : "Publier l'objet"}
         </button>
         <p className="text-body-sm text-sable">
           Visible immédiatement après publication.

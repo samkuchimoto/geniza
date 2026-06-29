@@ -1,6 +1,6 @@
 'use client'
 
-import { COLLECTOR_SCORE_LABEL } from '@/types'
+import { COLLECTOR_SCORE_LABEL, getCollectorTier } from '@/types'
 
 interface CollectorScoreProps {
   score: number
@@ -20,7 +20,7 @@ export default function CollectorScore({
   showLabel = true,
   size = 'md',
 }: CollectorScoreProps) {
-  const label = COLLECTOR_SCORE_LABEL(score)
+  const label = COLLECTOR_SCORE_LABEL[getCollectorTier(score)]
   const color = scoreColor(score)
 
   if (size === 'sm') {
