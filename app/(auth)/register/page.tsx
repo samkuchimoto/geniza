@@ -1,12 +1,14 @@
 'use client'
 
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { showToast } from '@/components/Toast'
 
-export default function RegisterPage() {
+// ── Inner component — the only part that calls useSearchParams ──────────────
+function RegisterForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get('next') ?? '/dashboard'
@@ -70,13 +72,17 @@ export default function RegisterPage() {
     }
   }
 
-  // ── Confirmation screen ──────────────────────────────────
   if (done) {
     return (
       <div className="text-center py-4">
         <div className="w-10 h-10 border border-vert flex items-center justify-center mx-auto mb-5">
           <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
-            <path d="M1 6L5.5 10.5L15 1" stroke="#3B6B4A" strokeWidth="1.5" strokeLinecap="square" />
+            <path
+              d="M1 6L5.5 10.5L15 1"
+              stroke="#3B6B4A"
+              strokeWidth="1.5"
+              strokeLinecap="square"
+            />
           </svg>
         </div>
         <h2 className="font-display text-display-sm font-medium text-encre mb-2">
@@ -120,7 +126,10 @@ export default function RegisterPage() {
         ) : (
           <>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M15.545 6.558a9.42 9.42 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.689 7.689 0 0 1 5.352 2.082l-2.284 2.284A4.347 4.347 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.792 4.792 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.702 3.702 0 0 0 1.599-2.431H8v-3.08h7.545z" fill="#4285F4"/>
+              <path
+                d="M15.545 6.558a9.42 9.42 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.689 7.689 0 0 1 5.352 2.082l-2.284 2.284A4.347 4.347 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.792 4.792 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.702 3.702 0 0 0 1.599-2.431H8v-3.08h7.545z"
+                fill="#4285F4"
+              />
             </svg>
             Continuer avec Google
           </>
@@ -198,5 +207,18 @@ export default function RegisterPage() {
         </p>
       </form>
     </>
+  )
+}
+
+// ── Page — Suspense required because RegisterForm calls useSearchParams ──────
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-4 text-center text-sable text-body-sm">Chargement...</div>
+      }
+    >
+      <RegisterForm />
+    </Suspense>
   )
 }
