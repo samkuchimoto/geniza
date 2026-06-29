@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
       // ── Cash sale completed ────────────────────────────────
       case 'checkout.session.completed': {
-        const session = event.data.object as Stripe.CheckoutSession
+        const session = event.data.object as Stripe.Checkout.Session
         const meta = session.payment_intent
           ? (await import('@/lib/stripe').then(m => m.stripe.paymentIntents.retrieve(
               session.payment_intent as string
