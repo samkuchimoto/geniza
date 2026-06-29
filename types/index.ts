@@ -1,20 +1,26 @@
 // ── Item Status ───────────────────────────────────────────────────────────────
 export type ItemStatus = 'draft' | 'available' | 'in_trade' | 'sold' | 'archived'
 
-// ── Conditions — must match DB enum item_condition exactly ───────────────────
+// ── Conditions — matches DB enum item_condition exactly ──────────────────────
 export type Condition = 'excellent' | 'bon' | 'acceptable' | 'mauvais'
 
 export const CONDITION_LABELS: Record<Condition, string> = {
-  excellent:   'Excellent état',
-  bon:         'Bon état',
-  acceptable:  'État acceptable',
-  mauvais:     'Mauvais état',
+  excellent:  'Excellent état',
+  bon:        'Bon état',
+  acceptable: 'État acceptable',
+  mauvais:    'Mauvais état',
 }
 
-// ── Listing types — must match DB enum listing_type exactly ──────────────────
+// ── Listing types — matches DB enum listing_type exactly ─────────────────────
 export type ListingType = 'sale' | 'trade' | 'both'
 
-// ── Categories — must match DB enum item_category exactly ────────────────────
+export const LISTING_TYPE_LABELS: Record<ListingType, string> = {
+  sale:  'Vente',
+  trade: 'Échange',
+  both:  'Vente + Échange',
+}
+
+// ── Categories — matches DB enum item_category exactly ───────────────────────
 export type Category = 'art' | 'antiques' | 'bd' | 'cards' | 'other'
 
 export const CATEGORY_LABELS: Record<Category, string> = {
@@ -23,6 +29,37 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   bd:       'BD & Mangas',
   cards:    'Cartes',
   other:    'Autres',
+}
+
+// ── Collector Score ───────────────────────────────────────────────────────────
+export type CollectorTier = 'nouveau' | 'debutant' | 'actif' | 'confirme' | 'expert'
+
+export const COLLECTOR_SCORE_LABEL: Record<CollectorTier, string> = {
+  nouveau:  'Nouveau',
+  debutant: 'Débutant',
+  actif:    'Actif',
+  confirme: 'Confirmé',
+  expert:   'Expert',
+}
+
+export function getCollectorTier(score: number): CollectorTier {
+  if (score >= 100) return 'expert'
+  if (score >= 50)  return 'confirme'
+  if (score >= 20)  return 'actif'
+  if (score >= 5)   return 'debutant'
+  return 'nouveau'
+}
+
+// ── Browse Filters ────────────────────────────────────────────────────────────
+export interface BrowseFilters {
+  category?:     Category | ''
+  condition?:    Condition | ''
+  listing_type?: ListingType | ''
+  min_price?:    number | ''
+  max_price?:    number | ''
+  query?:        string
+  trade_only?:   boolean
+  page?:         number
 }
 
 // ── Seller preview (joined in browse query) ──────────────────────────────────
@@ -34,26 +71,7 @@ export interface SellerPreview {
   collector_score: number
 }
 
-// ── Full item (DB row shape) ──────────────────────────────────────────────────
-export interface Item {
-  id:                  string
-  seller_id:           string
-  title:               string
-  description:         string | null
-  category:            Category
-  condition:           Condition
-  price_eur:           number | null
-  listing_type:        ListingType
-  trade_cash_top_up:   number | null
-  provenance:          string | null
-  status:              ItemStatus
-  views:               number
-  created_at:          string
-  updated_at:          string
-}
-
 // ── ItemWithCover — shape returned by the browse catalog query ───────────────
-// Matches: SELECT i.*, p.username, p.collector_score, img.url AS cover_image
 export interface ItemWithCover {
   id:           string
   title:        string
@@ -65,7 +83,40 @@ export interface ItemWithCover {
   seller:       SellerPreview
 }
 
-// ── Trade types ───────────────────────────────────────────────────────────────
+// ── Full item (DB row shape) ──────────────────────────────────────────────────
+export interface Item {
+  id:                string
+  seller_id:         string
+  title:             string
+  description:       string | null
+  category:          Category
+  condition:         Condition
+  price_eur:         number | null
+  listing_type:      ListingType
+  trade_cash_top_up: number | null
+  provenance:        string | null
+  status:            ItemStatus
+  views:             number
+  created_at:        string
+  updated_at:        string
+}
+
+// ── Profile ───────────────────────────────────────────────────────────────────
+export interface Profile {
+  id:               string
+  username:         string
+  display_name:     string | null
+  bio:              string | null
+  city:             string | null
+  avatar_url:       string | null
+  collector_score:  number
+  verified:         boolean
+  completed_trades: number
+  completed_sales:  number
+  created_at:       string
+}
+
+// ── Trade ─────────────────────────────────────────────────────────────────────
 export type TradeStatus =
   | 'pending'
   | 'accepted'
@@ -89,7 +140,7 @@ export interface TradeProposal {
   updated_at:               string
 }
 
-// ── Notification types ────────────────────────────────────────────────────────
+// ── Notifications ─────────────────────────────────────────────────────────────
 export type NotificationType =
   | 'trade_received'
   | 'trade_accepted'
@@ -107,19 +158,4 @@ export interface Notification {
   link:       string | null
   read:       boolean
   created_at: string
-}
-
-// ── Profile ───────────────────────────────────────────────────────────────────
-export interface Profile {
-  id:               string
-  username:         string
-  display_name:     string | null
-  bio:              string | null
-  city:             string | null
-  avatar_url:       string | null
-  collector_score:  number
-  verified:         boolean
-  completed_trades: number
-  completed_sales:  number
-  created_at:       string
 }
