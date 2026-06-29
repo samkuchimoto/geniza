@@ -1,161 +1,115 @@
-// ── Item Status ───────────────────────────────────────────────────────────────
-export type ItemStatus = 'draft' | 'available' | 'in_trade' | 'sold' | 'archived'
+import type { Metadata } from 'next'
+import { createClient } from '@/lib/supabase/server'
+import BrowseClient from './BrowseClient'
+import type { BrowseFilters, Category, Condition, ItemWithCover } from '@/types'
 
-// ── Conditions — matches DB enum item_condition exactly ──────────────────────
-export type Condition = 'excellent' | 'bon' | 'acceptable' | 'mauvais'
-
-export const CONDITION_LABELS: Record<Condition, string> = {
-  excellent:  'Excellent état',
-  bon:        'Bon état',
-  acceptable: 'État acceptable',
-  mauvais:    'Mauvais état',
+export const metadata: Metadata = {
+  title: 'Catalogue',
+  description:
+    'Parcours les objets disponibles — art, antiquités, bandes dessinées, cartes. Échange ou achète.',
 }
 
-// ── Listing types — matches DB enum listing_type exactly ─────────────────────
-export type ListingType = 'sale' | 'trade' | 'both'
+const PAGE_SIZE = 24
 
-export const LISTING_TYPE_LABELS: Record<ListingType, string> = {
-  sale:  'Vente',
-  trade: 'Échange',
-  both:  'Vente + Échange',
+interface PageProps {
+  searchParams: {
+    q?: string
+    category?: string
+    condition?: string
+    price_min?: string
+    price_max?: string
+    trade_only?: string
+    page?: string
+  }
 }
 
-// ── Categories — matches DB enum item_category exactly ───────────────────────
-export type Category = 'art' | 'antiques' | 'bd' | 'cards' | 'other'
+async function fetchItems(filters: BrowseFilters): Promise<{
+  items: ItemWithCover[]
+  totalCount: number
+}> {
+  const supabase = createClient()
 
-export const CATEGORY_LABELS: Record<Category, string> = {
-  art:      'Art',
-  antiques: 'Antiquités',
-  bd:       'BD & Mangas',
-  cards:    'Cartes',
-  other:    'Autres',
+  const offset = ((filters.page ?? 1) - 1) * PAGE_SIZE
+
+  let query = supabase
+    .from('items')
+    .select(
+      `
+      *,
+      seller:profiles!seller_id(id, username, collector_score, city, avatar_url),
+      cover_image:item_images!inner(url)
+    `,
+      { count: 'exact' }
+    )
+    .eq('status', 'available')
+    .eq('item_images.is_cover', true)
+
+  if (filters.category) query = query.eq('category', filters.category)
+  if (filters.condition) query = query.eq('condition', filters.condition)
+  if (filters.min_price) query = query.gte('price_eur', Number(filters.min_price))
+  if (filters.max_price) query = query.lte('price_eur', Number(filters.max_price))
+  if (filters.trade_only) query = query.in('listing_type', ['trade', 'both'])
+  if (filters.query) {
+    query = query.textSearch('search_vector', filters.query, {
+      type: 'websearch',
+      config: 'french',
+    })
+  }
+
+  query = query
+    .order('created_at', { ascending: false })
+    .range(offset, offset + PAGE_SIZE - 1)
+
+  const { data, count, error } = await query
+
+  if (error || !data) return { items: [], totalCount: 0 }
+
+  const items = data.map((item: Record<string, unknown>) => ({
+    ...item,
+    cover_image:
+      Array.isArray(item.cover_image) && item.cover_image.length > 0
+        ? (item.cover_image[0] as { url: string }).url
+        : null,
+  })) as ItemWithCover[]
+
+  return { items, totalCount: count ?? 0 }
 }
 
-// ── Collector Score ───────────────────────────────────────────────────────────
-export type CollectorTier = 'nouveau' | 'debutant' | 'actif' | 'confirme' | 'expert'
+export default async function BrowsePage({ searchParams }: PageProps) {
+  const filters: BrowseFilters = {
+    query: searchParams.q ?? '',
+    category: (searchParams.category as Category) || '',
+    condition: (searchParams.condition as Condition) || '',
+    min_price: searchParams.price_min ? parseFloat(searchParams.price_min) : '',
+    max_price: searchParams.price_max ? parseFloat(searchParams.price_max) : '',
+    trade_only: searchParams.trade_only === '1',
+    page: Math.max(1, parseInt(searchParams.page ?? '1', 10)),
+  }
 
-export const COLLECTOR_SCORE_LABEL: Record<CollectorTier, string> = {
-  nouveau:  'Nouveau',
-  debutant: 'Débutant',
-  actif:    'Actif',
-  confirme: 'Confirmé',
-  expert:   'Expert',
-}
+  const { items, totalCount } = await fetchItems(filters)
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
-export function getCollectorTier(score: number): CollectorTier {
-  if (score >= 100) return 'expert'
-  if (score >= 50)  return 'confirme'
-  if (score >= 20)  return 'actif'
-  if (score >= 5)   return 'debutant'
-  return 'nouveau'
-}
+  return (
+    <div className="container-page py-8 sm:py-12">
+      {/* Page header */}
+      <div className="mb-8">
+        <h1 className="font-display text-display-lg font-light text-encre">
+          Catalogue
+        </h1>
+        {filters.query && (
+          <p className="text-body-sm text-sable mt-1">
+            Résultats pour{' '}
+            <span className="text-encre font-medium">"{filters.query}"</span>
+          </p>
+        )}
+      </div>
 
-// ── Browse Filters ────────────────────────────────────────────────────────────
-export interface BrowseFilters {
-  category?:     Category | ''
-  condition?:    Condition | ''
-  listing_type?: ListingType | ''
-  min_price?:    number | ''
-  max_price?:    number | ''
-  query?:        string
-  trade_only?:   boolean
-  page?:         number
-}
-
-// ── Seller preview (joined in browse query) ──────────────────────────────────
-export interface SellerPreview {
-  id:              string
-  username:        string
-  avatar_url:      string | null
-  city:            string | null
-  collector_score: number
-}
-
-// ── ItemWithCover — shape returned by the browse catalog query ───────────────
-export interface ItemWithCover {
-  id:           string
-  title:        string
-  category:     Category
-  condition:    Condition
-  listing_type: ListingType
-  price_eur:    number | null
-  cover_image:  string | null
-  seller:       SellerPreview
-}
-
-// ── Full item (DB row shape) ──────────────────────────────────────────────────
-export interface Item {
-  id:                string
-  seller_id:         string
-  title:             string
-  description:       string | null
-  category:          Category
-  condition:         Condition
-  price_eur:         number | null
-  listing_type:      ListingType
-  trade_cash_top_up: number | null
-  provenance:        string | null
-  status:            ItemStatus
-  views:             number
-  created_at:        string
-  updated_at:        string
-}
-
-// ── Profile ───────────────────────────────────────────────────────────────────
-export interface Profile {
-  id:               string
-  username:         string
-  display_name:     string | null
-  bio:              string | null
-  city:             string | null
-  avatar_url:       string | null
-  collector_score:  number
-  verified:         boolean
-  completed_trades: number
-  completed_sales:  number
-  created_at:       string
-}
-
-// ── Trade ─────────────────────────────────────────────────────────────────────
-export type TradeStatus =
-  | 'pending'
-  | 'accepted'
-  | 'declined'
-  | 'expired'
-  | 'completed'
-  | 'disputed'
-
-export interface TradeProposal {
-  id:                       string
-  proposer_id:              string
-  receiver_id:              string
-  proposer_item_id:         string
-  proposer_cash_top_up:     number
-  receiver_item_id:         string
-  status:                   TradeStatus
-  message:                  string | null
-  expires_at:               string
-  stripe_payment_intent_id: string | null
-  created_at:               string
-  updated_at:               string
-}
-
-// ── Notifications ─────────────────────────────────────────────────────────────
-export type NotificationType =
-  | 'trade_received'
-  | 'trade_accepted'
-  | 'trade_declined'
-  | 'sale_payment'
-  | 'item_confirmed'
-  | 'message_received'
-
-export interface Notification {
-  id:         string
-  user_id:    string
-  type:       NotificationType
-  title:      string
-  body:       string | null
-  link:       string | null
-  read:       boolean
-  created_at: string
+      <BrowseClient
+        items={items}
+        filters={filters}
+        totalCount={totalCount}
+        totalPages={totalPages}
+      />
+    </div>
+  )
 }
