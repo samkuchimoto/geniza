@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { createTradeTopUpIntent } from '@/lib/stripe'
 import { sendEmail } from '@/lib/email'
+import { isStripeConfigured } from '@/lib/config'
 
 export async function POST(request: Request) {
   try {
@@ -74,6 +75,16 @@ export async function POST(request: Request) {
 
     // ── ACCEPT ─────────────────────────────────────────────
     const hasCashTopUp = trade.proposer_cash_top_up > 0
+
+    if (hasCashTopUp && !isStripeConfigured()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Cet échange nécessite un complément en cash, mais les paiements ne sont pas encore activés sur cette installation.',
+        },
+        { status: 503 }
+      )
+    }
 
     if (hasCashTopUp) {
       // Create Stripe PaymentIntent for top-up — items stay available until payment succeeds

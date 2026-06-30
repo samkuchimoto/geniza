@@ -81,8 +81,11 @@ export default function ListingForm() {
       set('title', json.data.titre || form.title)
       set('description', json.data.description || '')
       showToast('Description générée. Vérifie et ajuste avant de publier.', 'success')
-    } catch {
-      showToast('La génération a échoué. Réessaie.', 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error && err.message
+        ? err.message
+        : 'La génération a échoué. Réessaie.'
+      showToast(msg, 'error')
     } finally {
       setAiLoading(false)
     }

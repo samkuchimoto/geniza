@@ -1,18 +1,26 @@
 import nodemailer from 'nodemailer'
+import { isEmailConfigured } from './config'
 import type { EmailEvent } from '@/types'
 
 // ============================================================
-// Transport — Gmail SMTP via App Password
-// Setup: https://myaccount.google.com/apppasswords
+// Email is a notification layer, never a blocking dependency.
+// If Gmail credentials are absent, sendEmail logs and resolves
+// silently instead of throwing — trades, sales, and signups all
+// keep working even with zero email configured.
 // ============================================================
-function getTransporter() {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER!,
-      pass: process.env.GMAIL_APP_PASSWORD!,
-    },
-  })
+let _transporter: nodemailer.Transporter | null = null
+
+function getTransporter(): nodemailer.Transporter {
+  if (!_transporter) {
+    _transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER!,
+        pass: process.env.GMAIL_APP_PASSWORD!,
+      },
+    })
+  }
+  return _transporter
 }
 
 // ============================================================
@@ -38,23 +46,17 @@ function baseLayout(content: string): string {
       <td align="center" style="padding:40px 16px;">
         <table width="560" cellpadding="0" cellspacing="0" role="presentation"
                style="background:#FDFAF5;border:1px solid #E8E0D4;max-width:560px;width:100%;">
-          
-          <!-- Header -->
           <tr>
             <td style="padding:28px 36px 20px;border-bottom:1px solid #E8E0D4;">
               <span style="font-family:Georgia,serif;font-size:22px;font-weight:500;
                            color:#0D0C0A;letter-spacing:-0.01em;">GENIZA</span>
             </td>
           </tr>
-          
-          <!-- Content -->
           <tr>
             <td style="padding:32px 36px;">
               ${content}
             </td>
           </tr>
-          
-          <!-- Footer -->
           <tr>
             <td style="padding:20px 36px 28px;border-top:1px solid #E8E0D4;">
               <p style="margin:0;font-size:12px;color:#8C7B6B;line-height:1.5;">
@@ -114,21 +116,17 @@ function getTemplate(event: EmailEvent, data: Record<string, string>): TemplateD
           ${cta('Voir la proposition', data.trade_url)}
         `),
       }
-
     case 'trade_accepted':
       return {
         subject: `Proposition acceptée — ${data.item_title}`,
         html: baseLayout(`
           ${h1('Ta proposition a été acceptée')}
           ${p(`<strong>${data.receiver_name}</strong> a accepté ton échange.`)}
-          ${table(
-            detail('Échange', `${data.proposer_item_title} ↔ ${data.receiver_item_title}`)
-          )}
+          ${table(detail('Échange', `${data.proposer_item_title} ↔ ${data.receiver_item_title}`))}
           ${p('Coordonnez-vous pour l\'envoi. Les deux objets sont maintenant réservés.')}
           ${cta('Gérer l\'échange', data.trade_url)}
         `),
       }
-
     case 'trade_declined':
       return {
         subject: `Proposition refusée — ${data.item_title}`,
@@ -136,20 +134,18 @@ function getTemplate(event: EmailEvent, data: Record<string, string>): TemplateD
           ${h1('Ta proposition a été refusée')}
           ${p(`<strong>${data.receiver_name}</strong> n'a pas retenu ta proposition.`)}
           ${p('Ton objet est à nouveau disponible pour d\'autres échanges.')}
-          ${cta('Retourner au catalogue', `${process.env.NEXT_PUBLIC_BASE_URL}/browse`)}
+          ${cta('Retourner au catalogue', `${process.env.NEXT_PUBLIC_BASE_URL || ''}/browse`)}
         `),
       }
-
     case 'trade_expired':
       return {
         subject: `Proposition expirée — ${data.item_title}`,
         html: baseLayout(`
           ${h1('Une proposition d\'échange a expiré')}
           ${p('La proposition n\'a pas reçu de réponse dans les 7 jours. Les deux objets sont à nouveau disponibles.')}
-          ${cta('Retourner au catalogue', `${process.env.NEXT_PUBLIC_BASE_URL}/browse`)}
+          ${cta('Retourner au catalogue', `${process.env.NEXT_PUBLIC_BASE_URL || ''}/browse`)}
         `),
       }
-
     case 'sale_confirmed':
       return {
         subject: `Paiement reçu — ${data.item_title}`,
@@ -166,7 +162,6 @@ function getTemplate(event: EmailEvent, data: Record<string, string>): TemplateD
           ${cta('Gérer l\'expédition', data.dashboard_url)}
         `),
       }
-
     case 'item_to_ship':
       return {
         subject: `Rappel: objet à expédier — ${data.item_title}`,
@@ -178,7 +173,6 @@ function getTemplate(event: EmailEvent, data: Record<string, string>): TemplateD
           ${cta('Tableau de bord', data.dashboard_url)}
         `),
       }
-
     case 'shipment_to_confirm':
       return {
         subject: `Ton achat est en route — ${data.item_title}`,
@@ -190,7 +184,6 @@ function getTemplate(event: EmailEvent, data: Record<string, string>): TemplateD
           ${cta('Confirmer la réception', data.dashboard_url)}
         `),
       }
-
     default:
       return {
         subject: 'Notification GENIZA',
@@ -200,20 +193,30 @@ function getTemplate(event: EmailEvent, data: Record<string, string>): TemplateD
 }
 
 // ============================================================
-// Public send function
+// Public send function — fails soft.
+// Never throws. If unconfigured or the send fails, it logs a
+// warning and resolves. Callers never need a try/catch around it.
 // ============================================================
 export async function sendEmail(
   event: EmailEvent,
   to: string,
   data: Record<string, string>
 ): Promise<void> {
-  const transporter = getTransporter()
-  const template = getTemplate(event, data)
+  if (!isEmailConfigured()) {
+    console.warn(`[email] Skipped "${event}" to ${to} — GMAIL_USER/GMAIL_APP_PASSWORD not configured.`)
+    return
+  }
 
-  await transporter.sendMail({
-    from: `GENIZA <${process.env.GMAIL_USER}>`,
-    to,
-    subject: template.subject,
-    html: template.html,
-  })
+  try {
+    const transporter = getTransporter()
+    const template = getTemplate(event, data)
+    await transporter.sendMail({
+      from: `GENIZA <${process.env.GMAIL_USER}>`,
+      to,
+      subject: template.subject,
+      html: template.html,
+    })
+  } catch (err) {
+    console.warn(`[email] Failed to send "${event}" to ${to}:`, err)
+  }
 }

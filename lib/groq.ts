@@ -1,9 +1,22 @@
 import Groq from 'groq-sdk'
+import { isGroqConfigured, ServiceUnavailableError } from './config'
 import type { GroqDescriptionRequest, GroqDescriptionResponse, ItemCategory, ItemCondition } from '@/types'
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY!,
-})
+// ============================================================
+// Lazy singleton — constructed on first real use, not on import.
+// Missing GROQ_API_KEY never breaks the build or other routes.
+// ============================================================
+let _groq: Groq | null = null
+
+function getGroq(): Groq {
+  if (!isGroqConfigured()) {
+    throw new ServiceUnavailableError('Groq')
+  }
+  if (!_groq) {
+    _groq = new Groq({ apiKey: process.env.GROQ_API_KEY! })
+  }
+  return _groq
+}
 
 const CONDITION_FR: Record<ItemCondition, string> = {
   excellent: 'excellent — aucune trace d\'usure visible',
@@ -23,13 +36,15 @@ const CATEGORY_FR: Record<ItemCategory, string> = {
 export async function generateItemDescription(
   req: GroqDescriptionRequest
 ): Promise<GroqDescriptionResponse> {
+  const groq = getGroq()
+
   const prompt = `Tu es un expert en objets de collection et en rédaction de fiches de vente pour collectionneurs sérieux.
 
 L'objet: "${req.item_name}"
 Catégorie: ${CATEGORY_FR[req.category]}
 État: ${CONDITION_FR[req.condition]}
 
-Génère une fiche de vente en français, factuelle et professionnelle, adaptée à un marché de collectionneurs exigeants.
+G�nère une fiche de vente en français, factuelle et professionnelle, adaptée à un marché de collectionneurs exigeants.
 
 Règles:
 - Le titre doit être précis et accrocheur, 5 à 10 mots maximum
@@ -49,10 +64,7 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans backticks, sans preamble:
   })
 
   const raw = completion.choices[0]?.message?.content ?? '{}'
-
-  // Strip markdown code fences if model added them despite instructions
   const cleaned = raw.replace(/```json|```/g, '').trim()
-
   const parsed = JSON.parse(cleaned) as GroqDescriptionResponse
 
   return {

@@ -1,8 +1,16 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createSaleCheckoutSession } from '@/lib/stripe'
+import { isStripeConfigured, ServiceUnavailableError } from '@/lib/config'
 
 export async function POST(request: Request) {
+  if (!isStripeConfigured()) {
+    return NextResponse.json(
+      { success: false, error: 'Les paiements ne sont pas encore activés sur cette installation.' },
+      { status: 503 }
+    )
+  }
+
   try {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -15,7 +23,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'item_id requis.' }, { status: 400 })
     }
 
-    // Fetch item with cover image
     const { data: item, error: itemError } = await supabase
       .from('items')
       .select('*, cover:item_images(url)')
@@ -38,7 +45,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Prevent self-purchase
     if (item.seller_id === user.id) {
       return NextResponse.json(
         { success: false, error: 'Tu ne peux pas acheter ton propre objet.' },
@@ -61,6 +67,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, data: { url: checkoutUrl } })
   } catch (err: unknown) {
+    if (err instanceof ServiceUnavailableError) {
+      return NextResponse.json({ success: false, error: 'Paiements indisponibles.' }, { status: 503 })
+    }
     console.error('[stripe/checkout]', err)
     return NextResponse.json(
       { success: false, error: 'Erreur lors de la création du paiement.' },

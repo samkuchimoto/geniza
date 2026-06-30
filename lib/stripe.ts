@@ -1,11 +1,28 @@
 import Stripe from 'stripe'
+import { isStripeConfigured, ServiceUnavailableError } from './config'
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-04-10',
-  typescript: true,
-})
+// ============================================================
+// Lazy singleton — constructed on first real use, not on import.
+// If STRIPE_SECRET_KEY is absent, every exported function throws
+// a controlled ServiceUnavailableError that callers catch and
+// turn into a friendly 503, instead of crashing the module.
+// ============================================================
+let _stripe: Stripe | null = null
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL!
+function getStripe(): Stripe {
+  if (!isStripeConfigured()) {
+    throw new ServiceUnavailableError('Stripe')
+  }
+  if (!_stripe) {
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+      apiVersion: '2024-04-10',
+      typescript: true,
+    })
+  }
+  return _stripe
+}
+
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
 
 // ============================================================
 // Cash sale — Stripe Checkout Session
@@ -18,7 +35,7 @@ export async function createSaleCheckoutSession(params: {
   sellerId: string
   buyerId: string
 }): Promise<string> {
-  const platformFee = Math.round(params.priceEur * 0.06 * 100) // 6% in cents
+  const stripe = getStripe()
 
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
@@ -41,7 +58,7 @@ export async function createSaleCheckoutSession(params: {
         item_id: params.itemId,
         seller_id: params.sellerId,
         buyer_id: params.buyerId,
-        platform_fee_eur: (platformFee / 100).toFixed(2),
+        platform_fee_eur: (params.priceEur * 0.06).toFixed(2),
         type: 'sale',
       },
     },
@@ -62,6 +79,8 @@ export async function createTradeTopUpIntent(params: {
   receiverId: string
   topUpEur: number
 }): Promise<{ clientSecret: string; paymentIntentId: string }> {
+  const stripe = getStripe()
+
   const intent = await stripe.paymentIntents.create({
     amount: Math.round(params.topUpEur * 100),
     currency: 'eur',
@@ -88,9 +107,18 @@ export function constructWebhookEvent(
   payload: string | Buffer,
   signature: string
 ): Stripe.Event {
+  const stripe = getStripe()
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    throw new ServiceUnavailableError('Stripe webhook secret')
+  }
   return stripe.webhooks.constructEvent(
     payload,
     signature,
-    process.env.STRIPE_WEBHOOK_SECRET!
+    process.env.STRIPE_WEBHOOK_SECRET
   )
+}
+
+/** Direct access escape hatch for the webhook route, which needs the raw client. */
+export function getStripeClient(): Stripe {
+  return getStripe()
 }

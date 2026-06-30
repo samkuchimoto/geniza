@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import TradeProposalModal from '@/components/TradeProposalModal'
 import { showToast } from '@/components/Toast'
+import { isStripeConfiguredClient } from '@/lib/config'
 import type { ListingType } from '@/types'
 
 interface ItemActionsProps {
@@ -31,7 +32,8 @@ export default function ItemActions({
   const [showTradeModal, setShowTradeModal] = useState(false)
   const [buyLoading, setBuyLoading] = useState(false)
 
-  const canBuy = listingType === 'sale' || listingType === 'both'
+  const stripeReady = isStripeConfiguredClient()
+  const canBuy = (listingType === 'sale' || listingType === 'both') && stripeReady
   const canTrade = listingType === 'trade' || listingType === 'both'
 
   function requireAuth(action: () => void) {
@@ -108,7 +110,13 @@ export default function ItemActions({
           </button>
         )}
 
-        {!currentUserId && (
+        {!canBuy && !canTrade && (listingType === 'sale') && (
+          <p className="text-[11px] text-sable text-center font-mono-custom pt-1">
+            La vente n'est pas encore disponible sur cette installation.
+          </p>
+        )}
+
+        {!currentUserId && (canBuy || canTrade) && (
           <p className="text-[11px] text-sable text-center font-mono-custom pt-1">
             Connexion requise pour acheter ou échanger.
           </p>
