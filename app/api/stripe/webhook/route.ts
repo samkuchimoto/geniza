@@ -4,8 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/email'
 import type Stripe from 'stripe'
 
-// Required: disable Next.js body parsing so we can verify Stripe signature
-export const config = { api: { bodyParser: false } }
+
 
 export async function POST(request: Request) {
   const body = await request.text()
